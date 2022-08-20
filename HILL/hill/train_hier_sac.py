@@ -45,9 +45,6 @@ def launch(args):
     env_params = get_env_params(env)
     env_params['max_test_timesteps'] = test_env._max_episode_steps
 
-    if args.env_name[:4] == "Half":
-        env_params['action_max'] = np.array([120,90,60,120,60,30])
-
     # create the ddpg agent to interact with the environment
     sac_trainer = hier_sac_agent(args, env, env_params, test_env, test_env1, test_env2)
     if args.eval:
