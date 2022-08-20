@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import random
 from algos.sac.sac import SAC
-from algos.sac.replay_memory import ReplayMemory, Array_ReplayMemory
+from algos.sac.replay_memory import ReplayMemory
 import gym
 import pickle
 from planner.simhash import HashingBonusEvaluator
@@ -85,9 +85,6 @@ class hier_sac_agent:
 
         self.hi_act_space = gym.spaces.Box(low=np.array([-abs_range, -abs_range]),
                                            high=np.array([abs_range, abs_range]))
-        if args.env_name[:4] == "Half":
-            self.hi_act_space = gym.spaces.Box(low=np.array([-abs_range, -abs_range, -abs_range]),
-                                               high=np.array([abs_range, abs_range, abs_range]))
         self.real_goal_dim = self.hi_act_space.shape[0]  # low-level goal space and high-level action space
 
         if self.add_phi:
@@ -221,18 +218,10 @@ class hier_sac_agent:
 
             self.save_data_path = os.path.join(self.log_path, 'save_data')
             make_path(self.save_data_path)
-            # self.save_nn_data_path = os.path.join(save_data_path, 'nn_data.npy')
-            # make_path(self.save_nn_data_path)
-            # self.save_map_data_path = os.path.join(save_data_path, 'map_data.npy')
-            # make_path(self.save_map_data_path)
 
             self.plot_traj_path = os.path.join(self.log_path, 'traj_plots')
             make_path(self.plot_traj_path)
             print('plot_traj_path: ', self.plot_traj_path)
-            #
-            # self.plot_mapp_path = os.path.join(self.log_path, 'mapp_plots')
-            # make_path(self.plot_mapp_path)
-            # print('plot_mapp_path: ', self.plot_mapp_path)
 
             self.writer = SummaryWriter(log_dir=self.log_path)
             with open(os.path.join(self.log_path, 'params.json'), 'w') as json_file:
@@ -324,74 +313,6 @@ class hier_sac_agent:
         self.train_success = 0.
         self.count_prob = 1.
         self.furthest_task = 0.
-        if self.args.save_data:
-            self.nn_data = {'epoch': [], 'nn_obs': {}, 'nn_ag': {}, 'nn_subgoal': {}, 'nn_subgoal_delta': {},
-                            'nn_success': {}}
-            self.map_data = {'epoch': [], 'map_obs': {}, 'map_ag': {}, 'map_landmark_obs': {}, 'map_landmark_ag': {},
-                             'map_subgoal_obs': {}, 'map_subgoal_ag': {}, 'map_subgoal_delta': {}, 'map_success': {}}
-
-    def test_representation(self, n_test_rollouts=10):
-        env = self.test_env
-        # epochs = [9900]
-        epochs = [i * 100 for i in range(1, 150)]
-        path = '/home/xingdp/zhqy/hessmap/0725-1326-27/checkpoint/'
-
-        for epoch in epochs:
-            self.representation.load_state_dict(
-                torch.load(path + '/phi_model_{}.pt'.format(epoch), map_location='cuda:0')[0])
-            self.hi_agent.policy.load_state_dict(
-                torch.load(path + '/hi_actor_{}.pt'.format(epoch), map_location='cuda:0')[0])
-            self.low_actor_network.load_state_dict(
-                torch.load(path + '/low_actor_{}.pt'.format(epoch), map_location='cuda:0')[0])
-
-            obss = np.zeros((n_test_rollouts, self.env_params['max_test_timesteps'], self.real_goal_dim))
-            ags = np.zeros((n_test_rollouts, self.env_params['max_test_timesteps'], self.real_goal_dim))
-            subgoals = np.zeros(
-                (n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c), self.real_goal_dim))
-            subgoal_delta = np.zeros(
-                (n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c), self.real_goal_dim))
-            successs = []
-            for roll in range(n_test_rollouts):
-                observation = env.reset()
-                obs = observation['observation']
-                g = observation['desired_goal']
-                print('obs: {}    g: {}'.format(obs[:2], g))
-                for num in range(self.env_params['max_test_timesteps']):
-                    with torch.no_grad():
-                        act_obs, act_g = self._preproc_inputs(obs, g)
-                        if num % self.c == 0:
-                            hi_act_obs = np.concatenate((obs[:self.hi_dim], g))
-                            hi_action = self.hi_agent.select_action(hi_act_obs, evaluate=True)
-                            if self.old_sample:
-                                new_hi_action = hi_action
-                            else:
-                                ag = self.representation(torch.Tensor(obs).to(self.device)).detach().cpu().numpy()[0]
-                                new_hi_action = ag + hi_action
-                                new_hi_action = np.clip(new_hi_action, -SUBGOAL_RANGE, SUBGOAL_RANGE)
-                            hi_action_tensor = torch.tensor(new_hi_action, dtype=torch.float32).unsqueeze(0).to(
-                                self.device)
-
-                            subgoals[roll][int(num / self.c)] = new_hi_action
-                            subgoal_delta[roll][int(num / self.c)] = np.clip(hi_action, -SUBGOAL_RANGE, SUBGOAL_RANGE)
-
-                        action = self.test_policy(act_obs[:, :self.low_dim], hi_action_tensor)
-
-                    obss[roll][num] = obs[:self.real_goal_dim]
-                    ags[roll][num] = self.representation(torch.Tensor(obs).to(self.device)).detach().cpu().numpy()[0]
-
-                    observation_new, rew, done, info = env.step(action)
-                    obs = observation_new['observation']
-                    g = observation_new['desired_goal']
-                    if done or bool(info['is_success']):
-                        if (num < self.env_params['max_test_timesteps'] - 1):
-                            obss[roll][num + 1] = obs[:self.real_goal_dim]
-                            ags[roll][num + 1] = \
-                            self.representation(torch.Tensor(obs).to(self.device)).detach().cpu().numpy()[0]
-                        break
-                successs.append(num + 1)
-            self.save_nn_datas(obss, ags, subgoals, subgoal_delta, successs, epoch)
-            # plt.savefig('/home/xingdp/zhqy/hessmap/0725-1326-27/plots/obs_{}.png'.format(epoch))
-            # plt.close()
 
     def adjust_lr_actor(self, epoch):
         lr_actor = self.args.lr_actor * (0.5 ** (epoch // self.args.lr_decay_actor))
@@ -689,12 +610,7 @@ class hier_sac_agent:
                 if self.test_env1 is not None:
                     eval_success1, _ = self._eval_hier_agent(env=self.test_env1)
                     eval_success2, _ = self._eval_hier_agent(env=self.test_env2)
-                # if self.args.save_data:
-                #     print('------eval map policy------')
-                #     self._eval_map_agent(epoch=epoch, env=self.test_env, save_map_data=True)
-                print('---fix env---')
-                farthest_success_rate, _ = self._eval_hier_agent(epoch=epoch, env=self.test_env, save_nn_data=True)
-                print('---random env---')
+                farthest_success_rate, _ = self._eval_hier_agent(epoch=epoch, env=self.test_env)
                 random_success_rate, _ = self._eval_hier_agent(epoch=epoch, env=self.env)
 
                 self.success_log.append(farthest_success_rate)
@@ -872,11 +788,8 @@ class hier_sac_agent:
         action = np.clip(action, -self.env_params['action_max'], self.env_params['action_max'])
         # random actions...
         if np.random.rand() < self.args.random_eps:
-            if self.args.env_name[:4] == "Half":
-                action = self.env_params['action_max'] * np.random.uniform(-1, 1, *action.shape)
-            else:
-                action = np.random.uniform(low=-self.env_params['action_max'], high=self.env_params['action_max'],
-                                           size=self.env_params['action'])
+            action = np.random.uniform(low=-self.env_params['action_max'], high=self.env_params['action_max'],
+                                       size=self.env_params['action'])
         return action
 
     def explore_policy(self, obs, goal):
@@ -1041,14 +954,6 @@ class hier_sac_agent:
         if not self.args.eval:
             n_test_rollouts = self.args.n_test_rollouts
         discount_reward = np.zeros(n_test_rollouts)
-        if save_nn_data:
-            obss = np.zeros((n_test_rollouts, self.env_params['max_test_timesteps'], self.real_goal_dim))
-            ags = np.zeros((n_test_rollouts, self.env_params['max_test_timesteps'], self.real_goal_dim))
-            subgoals = np.zeros(
-                (n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c), self.real_goal_dim))
-            subgoal_delta = np.zeros(
-                (n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c), self.real_goal_dim))
-            successs = []
         for roll in range(n_test_rollouts):
             per_success_rate = []
             observation = env.reset()
@@ -1069,15 +974,7 @@ class hier_sac_agent:
                             new_hi_action = np.clip(new_hi_action, -SUBGOAL_RANGE, SUBGOAL_RANGE)
                         hi_action_tensor = torch.tensor(new_hi_action, dtype=torch.float32).unsqueeze(0).to(self.device)
 
-                        if save_nn_data:
-                            subgoals[roll][int(num / self.c)] = new_hi_action
-                            subgoal_delta[roll][int(num / self.c)] = np.clip(hi_action, -SUBGOAL_RANGE, SUBGOAL_RANGE)
-
                     action = self.test_policy(act_obs[:, :self.low_dim], hi_action_tensor)
-
-                if save_nn_data:
-                    obss[roll][num] = obs[:self.real_goal_dim]
-                    ags[roll][num] = ag
 
                 observation_new, rew, done, info = env.step(action)
                 # if self.animate:
@@ -1090,16 +987,8 @@ class hier_sac_agent:
                     if bool(info['is_success']):
                         discount_reward[roll] = 1 - 1. / self.env_params['max_test_timesteps'] * num
 
-                    if save_nn_data and (num < self.env_params['max_test_timesteps'] - 1):
-                        obss[roll][num + 1] = obs[:self.real_goal_dim]
-                        ags[roll][num + 1] = \
-                        self.representation(torch.Tensor(obs).to(self.device)).detach().cpu().numpy()[0]
                     break
-            if save_nn_data:
-                successs.append(num + 1)
             total_success_rate.append(per_success_rate)
-        if save_nn_data:
-            self.save_nn_datas(obss, ags, subgoals, subgoal_delta, successs, epoch)
 
         total_success_rate = np.array(total_success_rate)
         global_success_rate = np.mean(total_success_rate[:, -1])
@@ -1108,100 +997,6 @@ class hier_sac_agent:
             print("hier success rate", global_success_rate, global_reward)
         return global_success_rate, global_reward
 
-    def _eval_map_agent(self, epoch, env, n_test_rollouts=10, save_map_data=False):
-        if not self.args.eval:
-            n_test_rollouts = self.args.n_test_rollouts
-        if save_map_data:
-            obss = np.zeros((n_test_rollouts, self.env_params['max_test_timesteps'], self.real_goal_dim))
-            agss = np.zeros((n_test_rollouts, self.env_params['max_test_timesteps'], self.real_goal_dim))
-            subgoal_obss = np.zeros(
-                (n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c), self.real_goal_dim))
-            subgoal_agss = np.zeros(
-                (n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c), self.real_goal_dim))
-            subgoal_delta = np.zeros(
-                (n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c), self.real_goal_dim))
-            landmark_obss = np.zeros((n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c),
-                                      self.args.landmark + 1, self.real_goal_dim))
-            landmark_agss = np.zeros((n_test_rollouts, int(self.env_params['max_test_timesteps'] / self.c),
-                                      self.args.landmark + 1, self.real_goal_dim))
-            successs = []
-        for roll in range(n_test_rollouts):
-            per_success_rate = []
-            observation = env.reset()
-            obs = observation['observation']
-            g = observation['desired_goal']
-            print('obs: {}    g: {}'.format(obs[:self.real_goal_dim], g))
-            for num in range(self.env_params['max_test_timesteps']):
-                with torch.no_grad():
-                    act_obs, act_g = self._preproc_inputs(obs, g)
-                    ag = self.representation(torch.Tensor(obs).to(self.device)).detach().cpu().numpy()[0]
-                    if num % self.c == 0:
-                        obs_ag = np.concatenate((obs[:self.hi_dim], ag))
-                        landmark_obs, landmark_ags, subgoal_obs, subgoal_ags = self.select_by_mapp(obs[:self.hi_dim],
-                                                                                                   obs_ag, g, roll,
-                                                                                                   epoch,
-                                                                                                   save_data=True)
-                        hi_action = subgoal_ags
-                        if self.old_sample:
-                            new_hi_action = hi_action
-                        else:
-                            new_hi_action = ag + hi_action
-                            new_hi_action = np.clip(new_hi_action, -SUBGOAL_RANGE, SUBGOAL_RANGE)
-                        # print('hi_action_ini by mapp', new_hi_action)
-                        hi_action_tensor = torch.tensor(new_hi_action, dtype=torch.float32).unsqueeze(0).to(self.device)
-
-                        if save_map_data:
-                            subgoal_obss[roll][int(num / self.c)] = subgoal_obs
-                            subgoal_agss[roll][int(num / self.c)] = new_hi_action
-                            subgoal_delta[roll][int(num / self.c)] = np.clip(hi_action, -SUBGOAL_RANGE, SUBGOAL_RANGE)
-                            l_idx = min(landmark_ags.shape[0], self.args.landmark + 1)
-                            landmark_obss[roll][int(num / self.c)][:l_idx, :] = landmark_obs
-                            landmark_agss[roll][int(num / self.c)][:l_idx, :] = landmark_ags
-
-                    action = self.test_policy(act_obs[:, :self.low_dim], hi_action_tensor)
-
-                if save_map_data:
-                    obss[roll][num] = obs[:self.real_goal_dim]
-                    agss[roll][num] = ag
-
-                observation_new, rew, done, info = env.step(action)
-                obs = observation_new['observation']
-                g = observation_new['desired_goal']
-
-                if done:
-                    per_success_rate.append(info['is_success'])
-                    if bool(info['is_success']) and save_map_data and (num < self.env_params['max_test_timesteps'] - 1):
-                        obss[roll][num + 1] = obs[:self.real_goal_dim]
-                        agss[roll][num + 1] = \
-                        self.representation(torch.Tensor(obs).to(self.device)).detach().cpu().numpy()[0]
-                    break
-            successs.append(num + 1)
-        if save_map_data:
-            self.save_map_datas(obss, agss, landmark_obss, landmark_agss, subgoal_obss, subgoal_agss, subgoal_delta,
-                                successs, epoch)
-
-    def save_nn_datas(self, obss, ags, subgoals, subgoal_delta, successs, epoch):
-        self.nn_data['nn_obs'][epoch] = obss
-        self.nn_data['nn_ag'][epoch] = ags
-        self.nn_data['nn_subgoal'][epoch] = subgoals
-        self.nn_data['nn_subgoal_delta'][epoch] = subgoal_delta
-        self.nn_data['nn_success'][epoch] = successs
-        self.nn_data['epoch'].append(epoch)
-
-        np.save(self.save_data_path + '/nn_data.npy', self.nn_data)
-
-    def save_map_datas(self, obss, ags, landmark_obss, landmark_ags, subgoal_obss, subgoal_ags, subgoal_delta, successs,
-                       epoch):
-        self.map_data['map_obs'][epoch] = obss
-        self.map_data['map_ag'][epoch] = ags
-        self.map_data['map_landmark_obs'][epoch] = landmark_obss
-        self.map_data['map_landmark_ag'][epoch] = landmark_ags
-        self.map_data['map_subgoal_obs'][epoch] = subgoal_obss
-        self.map_data['map_subgoal_ag'][epoch] = subgoal_ags
-        self.map_data['map_subgoal_delta'][epoch] = subgoal_delta
-        self.map_data['map_success'][epoch] = successs
-        self.map_data['epoch'].append(epoch)
-        np.save(self.save_data_path + '/map_data.npy', self.map_data)
 
     def init_network(self):
         self.low_actor_network = actor(self.env_params, self.real_goal_dim, self.device).to(self.device)
@@ -1404,242 +1199,6 @@ class hier_sac_agent:
         train_data = np.array([obs, obs_next, hi_obs, hi_obs_next])
         return train_data, selected_idx, reg_obs
 
-    def new_prioritized_collect(self, batch_size=100):
-        # new negative samples
-        episode_num = self.low_buffer.current_size
-        obs_array = self.low_buffer.buffers['obs'][:episode_num]
-
-        candidate_idxs = self.candidate_idxs[:episode_num * (self.low_buffer.T - self.k + 1)]
-        # sample in replay buffer
-        selected = self.low_buffer._sample_for_phi(batch_size)
-        selected_idx = candidate_idxs[selected]
-        episode_idxs = selected_idx[:, 0]
-        t_samples = selected_idx[:, 1]
-
-        hi_obs = obs_array[episode_idxs, t_samples]
-        hi_obs_next = obs_array[episode_idxs, t_samples + self.k]
-        obs = hi_obs
-        obs_next = obs_array[episode_idxs, t_samples + 1]
-
-        # filter data when the robot is ant
-        if self.args.env_name[:3] == "Ant":
-            good_index = np.where((hi_obs[:, 2] >= 0.3) & (hi_obs_next[:, 2] >= 0.3) & (obs_next[:, 2] >= 0.3))[0]
-            hi_obs = hi_obs[good_index]
-            hi_obs_next = hi_obs_next[good_index]
-            obs = hi_obs
-            obs_next = obs_next[good_index]
-            selected_idx = selected_idx[good_index]
-            selected = selected[good_index]
-            assert len(hi_obs) == len(hi_obs_next) == len(obs_next) == len(selected_idx)
-
-        train_data = np.array([obs, obs_next, hi_obs, hi_obs_next])
-        return train_data, selected
-
-    def visualize_representation(self, epoch):
-        transitions, _ = self.low_buffer.sample(800)
-        obs = transitions['obs']
-
-        index1 = np.where((obs[:, 0] < 4) & (obs[:, 1] < 4))
-        index2 = np.where((obs[:, 0] < 4) & (obs[:, 1] > 4))
-        index3 = np.where((obs[:, 0] > 4) & (obs[:, 1] < 4))
-        index4 = np.where((obs[:, 0] > 4) & (obs[:, 1] > 4))
-        index_lst = [index1, index2, index3, index4]
-
-        obs_tensor = torch.Tensor(obs).to(self.device)
-        features = self.representation(obs_tensor).detach().cpu().numpy()
-        plt.scatter(features[:, 0], features[:, 1], color='green')
-        plt.show()
-
-    def plot_fig(self, rep, name, epoch):
-        fig = plt.figure()
-        axes = fig.add_subplot(111)
-        rep1, rep2, rep3, rep4 = rep
-
-        def scatter_rep(rep1, c, marker):
-            if rep1.shape[0] > 0:
-                l1 = axes.scatter(rep1[:, 0], rep1[:, 1], c=c, marker=marker)
-            else:
-                l1 = axes.scatter([], [], c=c, marker=marker)
-            return l1
-
-        l1 = scatter_rep(rep1, c='y', marker='s')
-        l2 = scatter_rep(rep2, c='r', marker='o')
-        l3 = scatter_rep(rep3, c='b', marker='1')
-        l4 = scatter_rep(rep4, c='g', marker='2')
-
-        plt.xlabel('x')
-        plt.ylabel('y')
-        axes.legend((l1, l2, l3, l4), ('space1', 'space2', 'space3', 'space4'))
-        plt.savefig('fig/final/' + name + str(epoch) + '.png')
-        plt.close()
-
-    # evaluate the agent and show the track
-    def vis_hier_policy(self, epoch=0, load_obs=None, path=None, representation=None):
-        obs_vec = []
-        hi_action_vec = []
-        env = self.test_env
-        observation = env.reset()
-        obs = observation['observation']
-        ag_record = observation['achieved_goal']
-        obs_vec.append(obs.copy())
-        if representation is None:
-            representation = self.representation
-        if self.args.image:
-            obs_vec[-1][:2] = ag_record
-        g = observation['desired_goal']
-        if load_obs is None:
-            for num in range(self.env_params['max_test_timesteps']):
-                with torch.no_grad():
-                    act_obs, act_g = self._preproc_inputs(obs, g)
-                    if num % self.c == 0:
-                        hi_act_obs = np.concatenate((obs[:self.hi_dim], g))
-                        hi_action = self.hi_agent.select_action(hi_act_obs, evaluate=True)
-                        if self.old_sample:
-                            new_hi_action = hi_action
-                        else:
-                            ag = self.representation(torch.Tensor(obs).to(self.device)).detach().cpu().numpy()[0]
-                            new_hi_action = ag + hi_action  # subgoal in representation space
-                            new_hi_action = np.clip(new_hi_action, -SUBGOAL_RANGE, SUBGOAL_RANGE)
-                        hi_action_tensor = torch.tensor(new_hi_action, dtype=torch.float32).unsqueeze(0).to(self.device)
-                        hi_action_vec.append(hi_action)
-                    action = self.test_policy(act_obs[:, :self.low_dim], hi_action_tensor)
-                observation_new, rew, done, info = env.step(action)
-                # if self.animate:
-                #     env.render()
-                obs = observation_new['observation']
-                ag_record = observation_new['achieved_goal']
-                obs_vec.append(obs.copy())
-                if self.args.image:
-                    obs_vec[-1][:2] = ag_record
-                if done:
-                    if info['is_success']:
-                        print("success !!!")
-                    break
-        else:
-            obs_vec = load_obs
-
-        plt.figure(figsize=(12, 6))
-        obs_vec = np.array(obs_vec)
-        with open('fig/final/' + "img_maze_scale4_5.pkl", 'wb') as output:
-            pickle.dump(obs_vec, output)
-        self.plot_rollout(obs_vec, "XY_{}".format(epoch * self.env_params['max_timesteps']), 121, goal=g)
-
-        if not self.learn_goal_space:
-            features = obs_vec[:, :2]
-            feature_goal = g[:2]
-        else:
-            if self.args.image:
-                obs_vec[:, :2] = 0.
-            obs_tensor = torch.Tensor(obs_vec[:, :self.hi_dim]).to(self.device)
-            features = representation(obs_tensor).detach().cpu().numpy()
-            rest = (self.env_params['obs'] - self.env_params['goal']) * [0.]
-            g = np.concatenate((g, np.array(rest)))
-            g = torch.tensor(g, dtype=torch.float32).unsqueeze(0).to(self.device)
-            feature_goal = representation(g).detach().cpu().numpy()[0]
-        hi_action_vec = np.array(hi_action_vec)
-        if load_obs is None:
-            self.plot_rollout(features, "Feature_{}".format(epoch * self.env_params['max_timesteps']), 122,
-                              feature_goal, hi_action_vec)
-        else:
-            self.plot_rollout(features, "Feature_{}".format(epoch * self.env_params['max_timesteps']), 122,
-                              use_lim=False)
-        if path is None:
-            file_name = 'fig/round2/rollout' + str(epoch) + '.png'
-        else:
-            file_name = path + '/rollout_' + str(epoch) + '.png'
-        plt.savefig(file_name, bbox_inches='tight', transparent=False)
-        # plt.show()
-        plt.close()
-
-    def plot_rollout(self, obs_vec, name, num, goal=None, hi_action_vec=None, no_axis=False, use_lim=False, fig=None):
-        if fig is None:
-            plt.subplot(num)
-            cm = plt.cm.get_cmap('RdYlBu')
-            num = np.arange(obs_vec.shape[0])
-            plt.scatter(obs_vec[:, 0], obs_vec[:, 1], c=num, cmap=cm)
-        else:
-            ax = fig.add_subplot(1, 2, num)
-            hi_horizon = int(obs_vec.shape[0] / self.args.c)
-            cm = plt.cm.get_cmap('RdYlBu')
-            num = np.arange(obs_vec.shape[0])
-            plt.scatter(obs_vec[:, 0], obs_vec[:, 1], c=num, cmap=cm)
-            for num in range(1, hi_horizon):
-                ax.text(obs_vec[num * self.c, 0], obs_vec[num * self.c, 1], str(num), fontsize=10, color='k', alpha=0.8)
-                plt.scatter(obs_vec[num * self.c, 0], obs_vec[num * self.c, 1], c='k', s=30)
-
-        if goal is not None:
-            plt.scatter([goal[0]], [goal[1]], marker='*',
-                        color='green', s=200, label='goal')
-        if hi_action_vec is not None:
-            for num in range(len(hi_action_vec)):
-                plt.scatter(hi_action_vec[num, 0], hi_action_vec[num, 1], c=self.color_set[num % len(self.color_set)],
-                            s=30)
-                # ax.text(hi_action_vec[num, 0], hi_action_vec[num, 1], str(num+1), fontsize=10, color='#FF00FF', alpha=0.8)
-        plt.title(name, fontsize=24)
-
-        if use_lim:
-            plt.ylim(-5, 25)
-            plt.xlim(-30, 10)
-
-        if not no_axis:
-            plt.scatter([obs_vec[0, 0]], [obs_vec[0, 1]], marker='+',
-                        color='green', s=200, label='start')
-            plt.scatter([obs_vec[-1, 0]], [obs_vec[-1, 1]], marker='+',
-                        color='red', s=200, label='end')
-            plt.legend(loc=2, bbox_to_anchor=(1.05, 1.0), fontsize=14, borderaxespad=0.)
-
-    def same_data_compare(self):
-        with open('fig/final/' + "sampled_raw_states.pkl", 'rb') as output:
-            Obs = pickle.load(output)
-
-        features = []
-        for obs in Obs:
-            obs_tensor = torch.Tensor(obs[:, :29]).to(self.device)
-            feature = self.representation(obs_tensor).detach().cpu().numpy()
-            features.append(feature)
-
-        self.plot_fig(Obs, 'obs', "raw")
-        self.plot_fig(features, 'slow_feature', 'slow')
-
-        with open('fig/final/' + "oracle_trajectory.pkl", 'rb') as output:
-            obs_vec = pickle.load(output)
-
-        xy = obs_vec[:, :2]
-        dists = np.linalg.norm(xy - [[0, 8]], axis=1)
-        success = np.argwhere(dists < 1.5)
-        min_success = min(success)[0]
-        print("min_success", min_success)
-        print("min_dist", dists[min_success])
-
-        plt.figure(figsize=(12, 6))
-        self.plot_rollout(obs_vec[:min_success], "XY", 121, no_axis=True)
-
-        obs_tensor = torch.Tensor(obs_vec[:min_success, :29]).to(self.device)
-        features = self.representation(obs_tensor).detach().cpu().numpy()
-        rest = (self.env_params['obs'] - self.real_goal_dim) * [0.]
-        g = np.concatenate(([0, 8], np.array(rest)))
-        g = torch.tensor(g, dtype=torch.float32).unsqueeze(0).to(self.device)
-        feature_goal = self.representation(g).detach().cpu().numpy()[0]
-        self.plot_rollout(features, "slow feature", 122, no_axis=True)
-
-        file_name = 'fig/final/rollout_compare.png'
-        plt.savefig(file_name, bbox_inches='tight')
-        plt.close()
-
-    def picvideo(self):
-
-        filenames = []
-        for i in range(50, 5000, 50):
-            filename = "fig/check_edge/rollout_{}.png".format(i)
-            filenames.append(filename)
-
-        frames = []
-        for image_name in filenames:
-            frames.append(imageio.imread(image_name))
-
-        # druation: switching time of figure, the unit is second
-        imageio.mimsave('fig/final/edge.gif', frames, 'GIF', duration=0.3)
-
     def cal_stable(self):
         transitions, _ = self.low_buffer.sample(100)
         obs = transitions['obs']
@@ -1657,103 +1216,6 @@ class hier_sac_agent:
         distance = np.linalg.norm(feature1 - feature2)
         print("distance", distance)
 
-    def plot_chain(self):
-        state = np.eye(40)
-        obs_tensor = torch.Tensor(state).to(self.device)
-        features = self.representation(obs_tensor).detach().cpu().numpy()
-        plt.plot(features)
-        plt.show()
-
-    def cal_slow(self):
-        num = 5
-        record = np.zeros(num)
-        state_lst = []
-        for i in range(num):
-            sample_data, hi_action = self.slow_collect()
-            state_lst.append(sample_data[:2])
-            print("sample", sample_data[:2].shape)
-            sample_data = torch.tensor(sample_data, dtype=torch.float32).to(self.device)
-            obs, obs_next = self.representation(sample_data[0]), self.representation(sample_data[1])
-            min_dist = torch.clamp((obs - obs_next).pow(2).mean(dim=1), min=0.)
-            mean_dist = np.mean(min_dist.detach().cpu().numpy())
-            record[i] = mean_dist
-
-            print("mean_dist", mean_dist)
-
-        arr_mean = np.mean(record)
-        arr_std = np.std(record, ddof=1)
-        print(self.args.env_name, arr_mean, arr_std)
-
-        with open('fig/final/' + "img_push_states.pkl", 'wb') as output:
-            pickle.dump(state_lst, output)
-
-    def cal_random_slow(self):
-        num = 5
-        record = np.zeros(num)
-        print("hi", self.hi_dim)
-
-        for i in range(num):
-            select_dim = np.random.randint(self.hi_dim, size=2)
-            sample_data, hi_action = self.slow_collect()
-
-            obs = sample_data[0][:, select_dim]
-            obs_next = sample_data[1][:, select_dim]
-            print("new", obs.shape)
-
-            min_dist = np.square(obs - obs_next)
-            mean_dist = np.mean(min_dist)
-            record[i] = mean_dist
-
-            print("mean_dist", mean_dist)
-
-        arr_mean = np.mean(record)
-        arr_std = np.std(record, ddof=1)
-        print(self.args.env_name, arr_mean, arr_std)
-
-    def plot_traj(self, low_obss, goal, epoch):
-        plt.figure()
-        colors = np.arange(0, 100, 100/self.env_params['max_timesteps'])
-        plt.scatter(low_obss[:self.env_params['max_timesteps'], 0].T, low_obss[:self.env_params['max_timesteps'], 1].T, c=colors, marker='o', s=10, label="obs")
-        plt.scatter(goal[0], goal[1], color='cyan', marker='*', s=20, label="goal")
-        plt.scatter(low_obss[0][0], low_obss[0][1], color='orange', marker='^', s=20, label="start")
-        plt.xlim((-10, 10))
-        plt.ylim((-10, 10))
-        plt.savefig(self.plot_traj_path + '/{}.png'.format(epoch))
-        plt.close()
-
-    def plot_mapp(self, low_obs, low_obs_ag, goal, t, epoch):
-        transitions, _ = self.low_buffer.sample(self.args.initial_sample)
-        obs, ag_record = transitions['obs'], transitions['ag_record'][:, :self.real_goal_dim]
-        obs_tensor = torch.Tensor(obs)[:, :self.hi_dim].to(self.device)
-        landmarks = self.representation(obs_tensor).detach()
-        features = landmarks.cpu().numpy()
-
-        landmark_idx, success_rate, (obs_goal, latent_goal) = self.planner_policy(low_obs_ag, goal, obs_tensor,
-                                                                                  landmarks)
-        landmark_idx = landmark_idx.cpu().numpy()
-
-        plot_random_obs = obs[:, :2]
-        plot_random_ag = features
-        plot_choosed_obs = obs[:, :2][landmark_idx]
-        plot_choosed_ag = features[landmark_idx]
-        plot_goal_obs = obs_goal[:, :2]
-        plot_goal_ag = latent_goal
-
-        plt.figure()
-        plt.subplot(121)
-        plt.scatter(plot_random_obs[:, 0].T, plot_random_obs[:, 1].T, color='black', marker='o', s=20,
-                    label="obs_random")
-        plt.scatter(plot_choosed_obs[:, 0].T, plot_choosed_obs[:, 1].T, color='orange', marker='^', s=20,
-                    label="obs_choosed")
-        plt.scatter(plot_goal_obs.T[0], plot_goal_obs.T[1], color='cyan', marker='*', s=20, label="obs_goal")
-
-        plt.subplot(122)
-        plt.scatter(plot_random_ag[:, 0].T, plot_random_ag[:, 1].T, color='black', marker='o', s=20, label="ag_random")
-        plt.scatter(plot_choosed_ag[:, 0].T, plot_choosed_ag[:, 1].T, color='orange', marker='^', s=20,
-                    label="ag_choosed")
-        plt.scatter(plot_goal_ag.T[0], plot_goal_ag.T[1], color='cyan', marker='*', s=20, label="ag_goal")
-
-        plt.savefig(self.plot_path + '/{}.png'.format(epoch))
 
     def select_by_mapp(self, low_obs, low_obs_ag, goal, t, epoch, save_data=False):  # low_obs是下层的观测tensor
         if not save_data:
@@ -1894,138 +1356,6 @@ class hier_sac_agent:
         dist = self.low_critic_network.base(obs, goal, actions).squeeze(-1)
         return -dist
 
-    def cal_fall_over(self):
-        self.low_buffer = torch.load(self.args.resume_path + '/low_buffer.pt', map_location='cuda:1')
-        print("load buffer !!!")
-        transitions, _ = self.low_buffer.sample(100000)
-        obs, ag_record = transitions['obs'], transitions['ag_record']
-        select_index = np.where((obs[:, 0] < -1.0) & (obs[:, 1] < -1.0))[0]
-        print("select", len(select_index))
-        total_count = len(select_index)
-        obs_new = obs[select_index]
-        not_fall = np.where((obs_new[:, 2] >= 0.3) & (obs_new[:, 2] <= 1.0))[0]
-        smaller = np.where(obs_new[:, 2] < 0.3)[0]
-        larger = np.where(obs_new[:, 2] > 1.0)[0]
-        print("not fall over", len(not_fall))
-        not_fall_rate = len(not_fall) / total_count
-        print("not fall rate", not_fall_rate)
-        print("smaller", len(smaller) / total_count)
-        print("larger", len(larger) / total_count)
-        print("#" * 20)
-
-        # new negative samples
-        batch_size = 10000
-        episode_num = self.low_buffer.current_size
-        obs_array = self.low_buffer.buffers['obs'][:episode_num]
-        episode_idxs = np.random.randint(0, episode_num, batch_size)
-        t_samples = np.random.randint(self.env_params['max_timesteps'] - self.k - self.delta_k, size=batch_size)
-        if self.delta_k > 0:
-            delta = np.random.randint(self.delta_k, size=batch_size)
-        else:
-            delta = 0
-
-        hi_obs = obs_array[episode_idxs, t_samples]
-        hi_obs_next = obs_array[episode_idxs, t_samples + self.k + delta]
-        obs = hi_obs
-        obs_next = obs_array[episode_idxs, t_samples + 1 + delta]
-
-        # filter data when the robot is ant
-        if self.args.env_name[:3] == "Ant":
-            good_index = np.where((hi_obs[:, 2] >= 0.3) & (hi_obs_next[:, 2] >= 0.3) & (obs_next[:, 2] >= 0.3))[0]
-            hi_obs = hi_obs[good_index]
-            hi_obs_next = hi_obs_next[good_index]
-            obs = hi_obs
-            obs_next = obs_next[good_index]
-
-            select_index = np.where((hi_obs[:, 0] < -1.0) & (hi_obs[:, 1] < -1.0) & (hi_obs_next[:, 0] < -1.0) & (
-                        hi_obs_next[:, 1] < -1.0) & \
-                                    (obs_next[:, 0] < -1.0) & (obs_next[:, 1] < -1.0))[0]
-            hi_obs = hi_obs[select_index]
-            hi_obs_next = hi_obs_next[select_index]
-            obs = hi_obs
-            obs_next = obs_next[select_index]
-
-            c_change = np.linalg.norm(hi_obs - hi_obs_next, axis=1)
-            one_change = np.linalg.norm(obs - obs_next, axis=1)
-            delta_change = c_change - one_change
-            print("c_change", len(c_change))
-            print("len_obs", len(hi_obs))
-            x_change = np.linalg.norm(hi_obs[:, 0:2] - hi_obs_next[:, 0:2], axis=1) - np.linalg.norm(
-                obs[:, 0:2] - obs_next[:, 0:2], axis=1)
-            print("delta_change", delta_change)
-            print("x_change", x_change)
-
-        train_data = np.array([obs, obs_next, hi_obs, hi_obs_next])
-
-    def edge_representation(self):
-        self.low_buffer = torch.load(self.args.resume_path + '/low_buffer.pt', map_location='cuda:1')
-        print("load buffer !!!")
-        transitions, _ = self.low_buffer.sample(2000)
-        obs, ag_record = transitions['obs'], transitions['ag_record']
-        select_index = np.where(obs[:, 1] < -1.0)[0]
-        print("selected num", len(select_index))
-
-        obs_new = obs[select_index]
-        # obs_new = obs_new[obs_new[:, 0].argsort()]
-
-        # fix the xy position, only consider joints
-        obs_new[:, :2] = obs_new[0, :2]
-        # print("obs_new", obs_new)
-
-        for i in range(50, 5000, 50):
-            self.representation.load_state_dict(torch.load(self.args.resume_path + \
-                                                           '/phi_model_{}.pt'.format(i), map_location='cuda:1')[0])
-            self.pruned_phi = copy.deepcopy(self.representation)
-            # pruning phi
-            for name, module in self.pruned_phi.named_modules():
-                if isinstance(module, torch.nn.Linear):
-                    prune.l1_unstructured(module, name='weight', amount=0.8)
-            self.vis_hier_policy(epoch=i, load_obs=obs_new, path="fig/check_edge", representation=self.pruned_phi)
-
-    def plot_density(self):
-        resume_path = '/home/xingdp/zhqy/hessmap/0725-1326-27/checkpoint'
-        self.low_buffer = torch.load(resume_path + '/low_buffer.pt', map_location='cuda:1')
-        self.representation.load_state_dict(torch.load(resume_path + \
-                                                       '/phi_model_{}.pt'.format(10900), map_location='cuda:1')[0])
-
-        # pruning phi
-        for name, module in self.representation.named_modules():
-            print("name", name)
-            print("module", module)
-            if isinstance(module, torch.nn.Linear):
-                prune.l1_unstructured(module, name='weight', amount=0.8)
-
-        print(dict(self.representation.named_buffers()).keys())
-        print("load buffer and phi !!!")
-
-        state = self.low_buffer.get_all_data()['obs']
-        state = state.reshape(-1, state.shape[2])
-        # self.xy_hash.inc_hash(state[:, :2])
-
-        # obs_tensor = torch.Tensor(state[:, :self.hi_dim]).to(self.device)
-        # features = self.representation(obs_tensor).detach().cpu().numpy()
-        # self.hash.inc_hash(features)
-
-        transitions, _ = self.low_buffer.sample(100000)
-        state = transitions['obs']
-        state = np.array(state)
-        count_xy = np.array(self.xy_hash.predict(state[:, :2])).astype(int)
-
-        # obs_tensor = torch.Tensor(state[:, :self.hi_dim]).to(self.device)
-        # features = self.representation(obs_tensor).detach().cpu().numpy()
-        # count_xy = np.array(self.hash.predict(features)).astype(int)
-
-        ax = plt.subplot(111, projection='3d')
-        cm = plt.cm.get_cmap('RdYlBu')
-        # ax.scatter(features[:, 0], features[:, 1], count_xy, c=count_xy, cmap=cm)
-        ax.scatter(state[:, 0], state[:, 1], count_xy, c=count_xy, cmap=cm)
-
-        plt.show()
-
-        bx = plt.subplot(111)
-        bx.scatter(state[:, 0], state[:, 1], c=count_xy, cmap=cm)
-        # bx.scatter(features[:, 0], features[:, 1], c=count_xy, cmap=cm)
-        plt.show()
 
     def cal_phi_loss(self):
         self.low_buffer = torch.load(self.args.resume_path + '/low_buffer.pt', map_location='cuda:1')
