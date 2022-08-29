@@ -1,6 +1,8 @@
 Balancing Exploration and Exploitation in Hierarchical Reinforcement Learning via Latent Landmark Graphs
-![image](HILL/figs/framework.png)
 ====
+
+![image](HILL/figs/framework.png)
+
 Table of Contents
 ---
 * Install
