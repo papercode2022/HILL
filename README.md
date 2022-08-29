@@ -19,7 +19,7 @@ Install
 
 Usage
 ---
-We provide the scripts for training and evaluation in ***HILL/run.sh***.
+We provide the training scripts in ***HILL/run.sh***.
 
 The parameter setting can be found in ***HILL/arguments***.
 
