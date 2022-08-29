@@ -28,7 +28,7 @@ The parameter setting can be found in ***HILL/arguments***.
 ```
 python train_hier_sac.py --c 50 --abs_range 20 --env-name AntMaze1Test-v1 --test AntMaze1Test-v3
 ``` 
-*Results of the running example (random seeds)*
+*Results of the running example (random seeds)*. The $x$-axis shows the epochs of training, and the y-axis shows the average success rate over $10$ episodes.
 
 ![image](https://github.com/papercode2022/HILL/blob/main/figs/AntMaze.jpg)
 
