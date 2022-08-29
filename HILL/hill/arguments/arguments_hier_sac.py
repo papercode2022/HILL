@@ -80,9 +80,9 @@ def get_args_ant():
     parser.add_argument('--target_update_interval', type=int, default=1, metavar='N',
                         help='Value target update per no. of updates per step (default: 1)')
 
-    parser.add_argument('--env-name', type=str, default='AntMaze1-v1', help='the environment name')
-    parser.add_argument('--test', type=str, default='AntMaze1Test-v1')
-    parser.add_argument("--which_exp", type=str, default='hessmap', help='hess gating infoNCE')
+    parser.add_argument('--env-name', type=str, default='AntMaze1Test-v1', help='the environment name')
+    parser.add_argument('--test', type=str, default='AntMaze1Test-v3')
+    parser.add_argument("--which_exp", type=str, default='HILL', help='hess gating infoNCE')
     parser.add_argument("--intrinsic_coeff", type=float, default=1000.0, help='maze1:0, else:1000')
     parser.add_argument('--c', type=int, default=50, help="interval of high-level action")
     parser.add_argument('--future-step', type=int, default=50, help='future step to be sampled')
@@ -91,7 +91,7 @@ def get_args_ant():
 
     #args for the planner
     parser.add_argument('--fps', default=True, help='if use fps in the planner')
-    parser.add_argument('--landmark', type=int, default=20, help="number of landmarks")
+    parser.add_argument('--landmark', type=int, default=400, help="number of landmarks")
     parser.add_argument('--initial-sample', type=int, default=2000, help="number of initial candidates for landmarks")
     parser.add_argument('--plan-eps', type=float, default=0.0, help="prob of using planner when training")
 
@@ -102,19 +102,19 @@ def get_args_ant():
     parser.add_argument('--delta_r', type=float, default=5, help="coverage ratio")
 
     #explore
-    parser.add_argument('--belta', type=float, default=1.0)
+    parser.add_argument('--belta', type=float, default=0.1)
     parser.add_argument("--image", type=bool, default=False, help='')
     parser.add_argument('--clip-v', type=float, default=-38, help="clip bound for the planner")
     parser.add_argument('--mapp_way', type=str, default='train_SR', help='train_SR stage count_prob')
     parser.add_argument('--start_mapp_success', type=float, default=100)
     parser.add_argument('--grid_scale', type=float, default=3.0)
     parser.add_argument('--subgoal_grid_scale', type=float, default=3.0)
-    parser.add_argument('--seed', type=int, default=283, help='random seed')
+    parser.add_argument('--seed', type=int, default=2, help='random seed')
     parser.add_argument('--description', type=str, default='if success != 0')
     parser.add_argument('--save_grad', type=bool, default=False)
     parser.add_argument('--save_plot', type=bool, default=False)
     parser.add_argument('--save_data', type=bool, default=True)
-    parser.add_argument('--contrast_n', type=float, default=1)
+    parser.add_argument('--contrast_n', type=float, default=2)
     parser.add_argument('--low_prio_ratio', type=float, default=0.3)
 
     args = parser.parse_args()
