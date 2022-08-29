@@ -28,6 +28,8 @@ The parameter setting can be found in ***HILL/arguments***.
 ```
 python train_hier_sac.py --c 50 --abs_range 20 --env-name AntMaze1Test-v1 --test AntMaze1Test-v3
 ``` 
+*Results with random seeds*
+![image](https://github.com/papercode2022/HILL/blob/main/figs/AntMaze.png){:height="50%" width="50%"}
 
 Future works
 ---
