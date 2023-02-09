@@ -76,8 +76,7 @@ class Planner:
                 obs = states
                 goal = i[None, :].expand(len(states), *i.shape)
                 dists.append(self.agent.pairwise_value(obs, goal))
-        return torch.stack(dists, dim=1)  # 同一个landmark对应的距离放在一行
-
+        return torch.stack(dists, dim=1)  
     def reset(self):
         self.saved_goal = None
 
@@ -98,8 +97,8 @@ class Planner:
         #
         #     hidden_all = self.agent.representation(state).detach()
         #
-        #     if self.fps:  # 这里有进一步改进的空间
-        #         random_idx = np.random.choice(len(hidden_all), self.initial_sample)  # 采样一部分点用来进行fps
+        #     if self.fps:  
+        #         random_idx = np.random.choice(len(hidden_all), self.initial_sample)  
         #         hidden = hidden_all[random_idx]
         #         landmarks = copy.deepcopy(hidden)
         #
